@@ -35,12 +35,7 @@ public class GasStationImpl implements GasStation, Serializable {
 
     @Override
     public void addGasPump(GasPump pump) {
-        List<GasPumpWrapper> gasPumpWrappers = gasPumps.get(pump.getGasType());
-        if (gasPumpWrappers == null) {
-            gasPumpWrappers = new ArrayList<>();
-            gasPumps.put(pump.getGasType(), gasPumpWrappers);
-        }
-        gasPumps.get(pump.getGasType()).add(new GasPumpWrapper(pump));
+        getGasPumpWrappers(pump.getGasType()).add(new GasPumpWrapper(pump));
     }
 
     @Override
@@ -56,35 +51,29 @@ public class GasStationImpl implements GasStation, Serializable {
 
         validateMaxPrice(type, maxPricePerLiter);
 
-        GasPumpWrapper gasPumpWrapper = validateAmountAndReturnAvailableGasPump(type, amountInLiters);
+        GasPumpWrapper gasPumpWrapper = getAvailableGasPump(type, amountInLiters);
 
         gasPumpWrapper.pumpGas(amountInLiters);
 
         double price = amountInLiters * prices.get(type);
         totalRevenue.set(totalRevenue.get() + price);
-        numberOfSuccessfulSales.set(numberOfSuccessfulSales.get() + 1);
-
+        numberOfSuccessfulSales.getAndIncrement();
         return price;
     }
 
-    private GasPumpWrapper validateAmountAndReturnAvailableGasPump(GasType type, double amountInLiters) throws NotEnoughGasException {
-        List<GasPumpWrapper> gasPumpWrappers = gasPumps.get(type);
-
-        if (gasPumpWrappers == null) {
-            numberOfCancellationsNoGas.set(numberOfCancellationsNoGas.get() + 1);
-            throw new NotEnoughGasException();
-        }
+    private GasPumpWrapper getAvailableGasPump(GasType type, double amountInLiters) throws NotEnoughGasException {
+        List<GasPumpWrapper> gasPumpWrappers = getGasPumpWrappers(type);
 
         for (GasPumpWrapper gasPumpWrapper : gasPumpWrappers) {
             synchronized (gasPumpWrapper) {
-                if (gasPumpWrapper.getRemainingAmount() - gasPumpWrapper.getPlanAmount() >= amountInLiters) {
-                    gasPumpWrapper.setPlanAmount(gasPumpWrapper.getPlanAmount() + amountInLiters);
+                if (gasPumpWrapper.checkRemainingAmount(amountInLiters)) {
+                    gasPumpWrapper.increasePlanAmount(amountInLiters);
                     return gasPumpWrapper;
                 }
             }
         }
 
-        numberOfCancellationsNoGas.set(numberOfCancellationsNoGas.get() + 1);
+        numberOfCancellationsNoGas.getAndIncrement();
         throw new NotEnoughGasException();
     }
 
@@ -92,9 +81,18 @@ public class GasStationImpl implements GasStation, Serializable {
         Double price = prices.get(type);
 
         if (price == null || price > maxPricePerLiter) {
-            numberOfCancellationsTooExpensive.set(numberOfCancellationsTooExpensive.get() + 1);
+            numberOfCancellationsTooExpensive.getAndIncrement();
             throw new GasTooExpensiveException();
         }
+    }
+
+    private List<GasPumpWrapper> getGasPumpWrappers(GasType gasType) {
+        List<GasPumpWrapper> gasPumpWrappers = gasPumps.get(gasType);
+        if (gasPumpWrappers == null) {
+            gasPumpWrappers = new ArrayList<>();
+            gasPumps.put(gasType, gasPumpWrappers);
+        }
+        return gasPumpWrappers;
     }
 
     @Override
